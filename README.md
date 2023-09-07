@@ -6,3 +6,6 @@
 
  # solidity
  Learing to write smartcontracts in solidity
+
+ # hardhat
+ Getting familiar with using the hardhat environment to compile and deploy
