@@ -1,14 +1,23 @@
 //SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.19;
 
-struct Transaction {
-    address spender;
-    uint amount;
-    uint numberOfApproval;
-    bool isActive;
-}
+// a multisig Wallet
+// contract should accept ether
+// array of signatories
+// approving transaction
+// mapping address to bool for valid Admins
+//mapping uint => address => bool  to track approval of each admin on each transaction
+// transaction Detail
 
+struct Transaction {
+        address spender;
+        uint amount;
+        uint numberOfApproval;
+        bool isActive;
+    }
+    
 contract MultiSig {
+
     address[] Admins;
     uint constant MINIMUM = 3;
     uint transactionId;
@@ -21,7 +30,9 @@ contract MultiSig {
     error InvalidAdminNo(uint number);
     error Duplicate(address addr);
 
-    fallback() external payable {}
+    event Create(address who, address spender, uint amount);
+
+    // fallback() external payable {}
 
     modifier onlyAdmin() {
         require(isAdmin[msg.sender], "Not a valid admin");
@@ -53,6 +64,7 @@ contract MultiSig {
         _transaction.amount = _amount;
         _transaction.spender = _spender;
         _transaction.isActive = true;
+        emit Create(msg.sender, _spender, _amount);
         approveTransaction(transactionId);
     }
 

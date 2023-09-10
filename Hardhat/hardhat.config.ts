@@ -11,6 +11,15 @@ const config: HardhatUserConfig = {
       // @ts-ignore
       accounts: [process.env.PRIVATEKEY],
     },
+    hardhat: {
+      forking: {
+        // @ts-ignore
+        url: process.env.URL,
+      },
+    },
+  },
+  etherscan: {
+    apiKey: process.env.BASE_API_KEY,
   },
 };
 
