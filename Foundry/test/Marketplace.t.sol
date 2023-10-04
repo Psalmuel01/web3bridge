@@ -1,66 +1,25 @@
+// SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {Marketplace} from "../src/Marketplace.sol";
+import "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
 
-contract TestMarketplace is Test {
+contract TestMarketplace {
     Marketplace marketplace;
 
     function setUp() public {
         marketplace = new Marketplace();
     }
 
-    // address seller = address(0x9434E0a9878a1bE87918762a846dBEa7B333B5DE);
-    // address buyer = address(0x0489DB67c9B49C1C813da3C538103926f31BE572);
-    // address tokenAddress = address(0x26F2f9995D136c1717dfad0443442fD4755Bff0a);
-
-    function testCreateOrder() public {
-        address seller = address(0x9434E0a9878a1bE87918762a846dBEa7B333B5DE);
-        address tokenAddress = address(
-            0x26F2f9995D136c1717dfad0443442fD4755Bff0a
-        );
+    function testCreateListing() public {
+        // Create a new listing
+        address tokenAddress = address(this);
         uint256 tokenId = 1;
-        uint256 price = 0.1 ether;
-        bytes memory signature = abi.encodePacked(seller);
-        uint256 deadline = block.timestamp + 86400;
-
-        marketplace.createOrder(
-            seller,
-            tokenAddress,
-            tokenId,
-            price,
-            signature,
-            deadline
-        );
-
-        Marketplace.Order memory order = marketplace.orders(tokenId);
-
-        assertEq(order.seller, msg.sender, "Seller should be the caller");
-        assertEq(
-            order.tokenAddress,
-            tokenAddress,
-            "Token address should match"
-        );
-        assertEq(order.tokenId, tokenId, "Token ID should match");
-        assertEq(order.price, price, "Price should match");
-        assertEq(order.signature, signature, "Signature should match");
-        assertEq(order.deadline, deadline, "Deadline should match");
-    }
-
-    function testExecuteOrder() public {
-        address seller = address(0x9434E0a9878a1bE87918762a846dBEa7B333B5DE);
-        address buyer = address(0x0489DB67c9B49C1C813da3C538103926f31BE572);
-        address tokenAddress = address(
-            0x26F2f9995D136c1717dfad0443442fD4755Bff0a
-        );
-        uint256 tokenId = 123;
         uint256 price = 100;
-        bytes memory signature = abi.encodePacked(seller);
-        uint256 deadline = block.timestamp + 86400;
-
-        // Create the order
-        marketplace.createOrder(
-            seller,
+        bytes memory signature = "test";
+        uint256 deadline = block.timestamp + 3600;
+        marketplace.createListing(
             tokenAddress,
             tokenId,
             price,
@@ -68,34 +27,69 @@ contract TestMarketplace is Test {
             deadline
         );
 
-        // Execute the order
-        vm.prank(buyer);
-        marketplace.executeOrder{value: price}(tokenId);
+        // Check that the listing was created
+        uint256 listingCount = marketplace.listingCount();
+        assertEq(listingCount, 1, "Listing count should be 1");
 
-        // Check that the order was executed correctly
-        Marketplace.Order memory order = marketplace.orders(tokenId);
-
-        assertEq(order.seller, buyer, "Buyer should be the new owner");
-        assertEq(order.price, 0, "Price should be zero");
+        Marketplace.Listing memory listing = marketplace.listings(listingCount);
+        assertEq(
+            listing.seller,
+            address(this),
+            "Seller should be this contract"
+        );
+        assertEq(
+            listing.tokenAddress,
+            tokenAddress,
+            "Token address should be correct"
+        );
+        assertEq(listing.tokenId, tokenId, "Token ID should be correct");
+        assertEq(listing.price, price, "Price should be correct");
+        assertEq(listing.signature, signature, "Signature should be correct");
+        assertEq(listing.deadline, deadline, "Deadline should be correct");
     }
 
-    function testOrderExpired() public {
-        address seller = address(0x9434E0a9878a1bE87918762a846dBEa7B333B5DE);
-        address token = address(0x26F2f9995D136c1717dfad0443442fD4755Bff0a);
+    function testExecuteListing() public payable {
+        // Create a new listing
+        address tokenAddress = address(this);
         uint256 tokenId = 1;
-        uint256 pastDeadline = block.timestamp - 1 days;
-        bytes memory signature = abi.encodePacked(seller);
-
-        marketplace.createOrder(
-            seller,
-            token,
+        uint256 price = 100;
+        bytes memory signature = "test";
+        uint256 deadline = block.timestamp + 3600;
+        marketplace.createListing(
+            tokenAddress,
             tokenId,
-            1 ether,
+            price,
             signature,
-            pastDeadline
+            deadline
         );
 
-        vm.expectRevert("Order deadline expired");
-        marketplace.executeOrder(tokenId);
+        // Execute the listing
+        uint256 listingId = 1;
+        address payable buyer = payable(address(this));
+        address payable seller = payable(address(marketplace));
+        uint256 initialBalance = seller.balance;
+        marketplace.executeListing{value: price}(listingId);
+
+        // Check that the listing was executed
+        uint256 listingCount = marketplace.listingCount();
+        assertEq(listingCount, 0, "Listing count should be 0");
+
+        Marketplace.Listing memory listing = marketplace.listings(listingId);
+        assertEq(listing.seller, address(0), "Seller should be zero address");
+
+        // Check that the NFT ownership was transferred to the buyer
+        assertEq(
+            IERC721(tokenAddress).ownerOf(tokenId),
+            address(this),
+            "NFT ownership should be transferred to buyer"
+        );
+
+        // Check that the seller was paid
+        uint256 finalBalance = seller.balance;
+        assertEq(
+            finalBalance - initialBalance,
+            price,
+            "Seller should be paid the correct amount"
+        );
     }
 }

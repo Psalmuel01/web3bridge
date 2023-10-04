@@ -3,9 +3,10 @@ pragma solidity ^0.8.13;
 
 import "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
 import "openzeppelin-contracts/contracts/utils/cryptography/ECDSA.sol";
+import "openzeppelin-contracts/contracts/utils/Address.sol";
 
 contract Marketplace {
-    struct Order {
+    struct Listing {
         address payable seller;
         address tokenAddress;
         uint256 tokenId;
@@ -14,34 +15,46 @@ contract Marketplace {
         uint256 deadline;
     }
 
-    mapping(bytes32 => bool) public usedSignatures;
-    mapping(bytes32 => Order) public orders;
+    uint256 public listingCount;
+    mapping(uint256 => Listing) public listings;
 
-    function createOrder(
-        address _seller,
+    event ListingCreated(
+        address seller,
+        address tokenAddress,
+        uint256 tokenId,
+        uint256 price
+    );
+    event ListingExecuted(uint256 listingId, address buyer, address seller);
+
+    function createListing(
         address _tokenAddress,
         uint256 _tokenId,
         uint256 _price,
         bytes calldata _signature,
         uint256 _deadline
-    ) public {
+    ) external {
+        // Owner checks
+        require(
+            IERC721(_tokenAddress).ownerOf(_tokenId) == msg.sender,
+            "Not owner"
+        );
+        require(
+            IERC721(_tokenAddress).isApprovedForAll(msg.sender, address(this)),
+            "Not approved"
+        );
+
+        // Token address checks
+        require(_tokenAddress != address(0), "Zero address, not valid");
+        require(Address.isContract(_tokenAddress), "Not contract");
+
+        // Price check
         require(_price > 0, "Price must be greater than zero");
+
+        // Deadline check
         require(_deadline > block.timestamp, "Deadline must be in the future");
 
-        //Check if it's been used
-        bytes32 orderId = keccak256(
-            abi.encodePacked(
-                _tokenAddress,
-                _tokenId,
-                _price,
-                _seller,
-                _deadline
-            )
-        );
-        require(!usedSignatures[orderId], "Signature has already been used");
-
-        //Verify signature
-        bytes32 orderHash = keccak256(
+        // Sign
+        bytes32 hash = keccak256(
             abi.encodePacked(
                 _tokenAddress,
                 _tokenId,
@@ -50,9 +63,8 @@ contract Marketplace {
                 _deadline
             )
         );
-        // require(orderHash.recover(_signature) == msg.sender, "Invalid signature");
         require(
-            verifySignature(orderHash, _signature, msg.sender),
+            ECDSA.recover(hash, _signature) == msg.sender,
             "Invalid signature"
         );
 
@@ -63,8 +75,9 @@ contract Marketplace {
             _tokenId
         );
 
-        //Create the order
-        orders[orderHash] = Order(
+        // Create listing
+        listingCount++;
+        listings[listingCount] = Listing(
             payable(msg.sender),
             _tokenAddress,
             _tokenId,
@@ -73,58 +86,52 @@ contract Marketplace {
             _deadline
         );
 
-        usedSignatures[orderId] = true;
+        // Emit event
+        emit ListingCreated(msg.sender, _tokenAddress, _tokenId, _price);
     }
 
-    function executeOrder(bytes32 _orderHash) public payable {
-        require(
-            orders[_orderHash].seller != msg.sender,
-            "Seller cannot purchase their own listing"
-        );
-        Order storage order = orders[_orderHash];
-        require(order.deadline > block.timestamp, "Order expired");
-        require(order.price == msg.value, "Incorrect ETH value");
-        require(order.tokenAddress != address(0), "Order does not exist");
+    function executeListing(uint256 _listingId) external payable {
+        // Get listing
+        Listing storage listing = listings[_listingId];
 
-        //Verify the signature
-        bytes32 orderHash = keccak256(
+        // Listing must exist
+        require(_listingId <= listingCount, "Invalid listing");
+
+        // Check price
+        require(msg.value == listing.price, "Incorrect price");
+
+        // Check deadline
+        require(block.timestamp <= listing.deadline, "Deadline passed");
+
+        // Verify signature
+        bytes32 hash = keccak256(
             abi.encodePacked(
-                order.tokenAddress,
-                order.tokenId,
-                order.price,
-                order.seller,
-                order.deadline
+                listing.tokenAddress,
+                listing.tokenId,
+                listing.price,
+                listing.seller,
+                listing.deadline
             )
         );
-        // require(
-        //     orderHash.recover(order.signature) == order.seller,
-        //     "Invalid signature"
-        // );
         require(
-            verifySignature(orderHash, order.signature, order.seller),
+            ECDSA.recover(hash, listing.signature) == listing.seller,
             "Invalid signature"
         );
 
         // Transfer NFT ownership to buyer
-        IERC721(order.tokenAddress).safeTransferFrom(
+        IERC721(listing.tokenAddress).safeTransferFrom(
             address(this),
             msg.sender,
-            order.tokenId
+            listing.tokenId
         );
 
-        //Pay seller
-        order.seller.transfer(msg.value);
+        // Pay seller
+        listing.seller.transfer(msg.value);
 
-        //Update the token owner and remove the order
-        delete orders[_orderHash];
-    }
+        // Emit event
+        emit ListingExecuted(_listingId, msg.sender, listing.seller);
 
-    function verifySignature(
-        bytes32 hash,
-        bytes memory signature,
-        address signer
-    ) internal view returns (bool) {
-        bytes32 ethSignedHash = ECDSA.toEthSignedMessageHash(hash);
-        return ECDSA.recover(ethSignedHash, signature) == signer;
+        // Delete listing
+        delete listings[_listingId];
     }
 }
