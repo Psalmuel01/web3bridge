@@ -2,28 +2,27 @@
 pragma solidity ^0.8.13;
 
 import "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
-import "openzeppelin-contracts/contracts/token/ERC721/IERC721Receiver.sol";
 import "openzeppelin-contracts/contracts/utils/cryptography/ECDSA.sol";
 
-contract Marketplace is IERC721Receiver {
+contract Marketplace {
     struct Order {
-        address creator;
+        address payable seller;
         address tokenAddress;
         uint256 tokenId;
         uint256 price;
-        bytes32 signature;
+        bytes signature;
         uint256 deadline;
     }
 
     mapping(bytes32 => bool) public usedSignatures;
-    mapping(uint256 => Order) public orders;
+    mapping(bytes32 => Order) public orders;
 
     function createOrder(
-        address _creator,
+        address _seller,
         address _tokenAddress,
         uint256 _tokenId,
         uint256 _price,
-        bytes memory _signature,
+        bytes calldata _signature,
         uint256 _deadline
     ) public {
         require(_price > 0, "Price must be greater than zero");
@@ -35,14 +34,14 @@ contract Marketplace is IERC721Receiver {
                 _tokenAddress,
                 _tokenId,
                 _price,
-                _creator,
+                _seller,
                 _deadline
             )
         );
         require(!usedSignatures[orderId], "Signature has already been used");
 
         //Verify signature
-        bytes32 messageHash = keccak256(
+        bytes32 orderHash = keccak256(
             abi.encodePacked(
                 _tokenAddress,
                 _tokenId,
@@ -51,58 +50,81 @@ contract Marketplace is IERC721Receiver {
                 _deadline
             )
         );
-        address signer = messageHash.recover(_signature);
-        require(signer == msg.sender, "Invalid signature");
+        // require(orderHash.recover(_signature) == msg.sender, "Invalid signature");
+        require(
+            verifySignature(orderHash, _signature, msg.sender),
+            "Invalid signature"
+        );
+
+        // Transfer NFT ownership to contract
+        IERC721(_tokenAddress).safeTransferFrom(
+            msg.sender,
+            address(this),
+            _tokenId
+        );
 
         //Create the order
-        Order memory order = Order({
-            creator: msg.sender,
-            tokenAddress: _tokenAddress,
-            tokenId: _tokenId,
-            price: _price,
-            signature: _signature,
-            deadline: _deadline
-        });
+        orders[orderHash] = Order(
+            payable(msg.sender),
+            _tokenAddress,
+            _tokenId,
+            _price,
+            _signature,
+            _deadline
+        );
 
-        orders[_tokenId] = order;
-        
         usedSignatures[orderId] = true;
     }
 
-    function executeOrder(uint256 _tokenId) public payable {
+    function executeOrder(bytes32 _orderHash) public payable {
         require(
-            orders[_tokenId].creator != msg.sender,
-            "Creator cannot purchase their own listing"
+            orders[_orderHash].seller != msg.sender,
+            "Seller cannot purchase their own listing"
         );
-        Order storage order = orders[_tokenId];
-        require(order.price == msg.value, "Incorrect amount sent");
-        require(order.tokenAddress != address(0), "Order does not exist");
+        Order storage order = orders[_orderHash];
         require(order.deadline > block.timestamp, "Order expired");
+        require(order.price == msg.value, "Incorrect ETH value");
+        require(order.tokenAddress != address(0), "Order does not exist");
 
         //Verify the signature
-        bytes32 messageHash = keccak256(
+        bytes32 orderHash = keccak256(
             abi.encodePacked(
                 order.tokenAddress,
                 order.tokenId,
                 order.price,
-                order.creator,
+                order.seller,
                 order.deadline
             )
         );
+        // require(
+        //     orderHash.recover(order.signature) == order.seller,
+        //     "Invalid signature"
+        // );
         require(
-            messageHash.recover(order.signature) == order.creator,
+            verifySignature(orderHash, order.signature, order.seller),
             "Invalid signature"
         );
 
-        //Transfer ownership of the token
+        // Transfer NFT ownership to buyer
         IERC721(order.tokenAddress).safeTransferFrom(
-            order.creator,
+            address(this),
             msg.sender,
             order.tokenId
         );
 
+        //Pay seller
+        order.seller.transfer(msg.value);
+
         //Update the token owner and remove the order
-        order.creator = msg.sender;
-        delete orders[_tokenId];
+        delete orders[_orderHash];
+    }
+
+    function verifySignature(
+        bytes32 hash,
+        bytes memory signature,
+        address signer
+    ) internal view returns (bool) {
+        bytes32 ethSignedHash = ECDSA.toEthSignedMessageHash(hash);
+        return ECDSA.recover(ethSignedHash, signature) == signer;
     }
 }

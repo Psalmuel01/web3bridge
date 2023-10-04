@@ -1,5 +1,4 @@
-pragma solidity ^0.8.0;
-
+pragma solidity ^0.8.13;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {Marketplace} from "../src/Marketplace.sol";
@@ -7,20 +6,26 @@ import {Marketplace} from "../src/Marketplace.sol";
 contract TestMarketplace is Test {
     Marketplace marketplace;
 
-    function beforeEach() public {
+    function setUp() public {
         marketplace = new Marketplace();
     }
 
+    // address seller = address(0x9434E0a9878a1bE87918762a846dBEa7B333B5DE);
+    // address buyer = address(0x0489DB67c9B49C1C813da3C538103926f31BE572);
+    // address tokenAddress = address(0x26F2f9995D136c1717dfad0443442fD4755Bff0a);
+
     function testCreateOrder() public {
-        address creator = address(0x123);
-        address tokenAddress = address(0x456);
-        uint256 tokenId = 123;
-        uint256 price = 100;
-        bytes32 signature = bytes32(0x789);
-        uint256 deadline = block.timestamp + 3600;
+        address seller = address(0x9434E0a9878a1bE87918762a846dBEa7B333B5DE);
+        address tokenAddress = address(
+            0x26F2f9995D136c1717dfad0443442fD4755Bff0a
+        );
+        uint256 tokenId = 1;
+        uint256 price = 0.1 ether;
+        bytes memory signature = abi.encodePacked(seller);
+        uint256 deadline = block.timestamp + 86400;
 
         marketplace.createOrder(
-            creator,
+            seller,
             tokenAddress,
             tokenId,
             price,
@@ -30,7 +35,7 @@ contract TestMarketplace is Test {
 
         Marketplace.Order memory order = marketplace.orders(tokenId);
 
-        assertEq(order.creator, msg.sender, "Creator should be the caller");
+        assertEq(order.seller, msg.sender, "Seller should be the caller");
         assertEq(
             order.tokenAddress,
             tokenAddress,
@@ -43,17 +48,19 @@ contract TestMarketplace is Test {
     }
 
     function testExecuteOrder() public {
-        address creator = address(0x123);
-        address buyer = address(0x456);
-        address tokenAddress = address(0x789);
+        address seller = address(0x9434E0a9878a1bE87918762a846dBEa7B333B5DE);
+        address buyer = address(0x0489DB67c9B49C1C813da3C538103926f31BE572);
+        address tokenAddress = address(
+            0x26F2f9995D136c1717dfad0443442fD4755Bff0a
+        );
         uint256 tokenId = 123;
         uint256 price = 100;
-        bytes32 signature = bytes32(0xabc);
-        uint256 deadline = block.timestamp + 3600;
+        bytes memory signature = abi.encodePacked(seller);
+        uint256 deadline = block.timestamp + 86400;
 
         // Create the order
         marketplace.createOrder(
-            creator,
+            seller,
             tokenAddress,
             tokenId,
             price,
@@ -62,26 +69,33 @@ contract TestMarketplace is Test {
         );
 
         // Execute the order
-        execute{value: price}(tokenId);
+        vm.prank(buyer);
+        marketplace.executeOrder{value: price}(tokenId);
 
         // Check that the order was executed correctly
         Marketplace.Order memory order = marketplace.orders(tokenId);
 
-        assertEq(order.creator, buyer, "Buyer should be the new owner");
-        assertEq(
-            order.tokenAddress,
-            tokenAddress,
-            "Token address should match"
-        );
-        assertEq(order.tokenId, tokenId, "Token ID should match");
+        assertEq(order.seller, buyer, "Buyer should be the new owner");
         assertEq(order.price, 0, "Price should be zero");
-        assertEq(order.signature, bytes32(0), "Signature should be empty");
-        assertEq(order.deadline, 0, "Deadline should be zero");
     }
 
-    function execute(uint256 tokenId) public {
-        marketplace.executeOrder{value: marketplace.orders(tokenId).price}(
-            tokenId
+    function testOrderExpired() public {
+        address seller = address(0x9434E0a9878a1bE87918762a846dBEa7B333B5DE);
+        address token = address(0x26F2f9995D136c1717dfad0443442fD4755Bff0a);
+        uint256 tokenId = 1;
+        uint256 pastDeadline = block.timestamp - 1 days;
+        bytes memory signature = abi.encodePacked(seller);
+
+        marketplace.createOrder(
+            seller,
+            token,
+            tokenId,
+            1 ether,
+            signature,
+            pastDeadline
         );
+
+        vm.expectRevert("Order deadline expired");
+        marketplace.executeOrder(tokenId);
     }
 }
