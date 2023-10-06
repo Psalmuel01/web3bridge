@@ -1,137 +1,207 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
-import "openzeppelin-contracts/contracts/utils/cryptography/ECDSA.sol";
-import "openzeppelin-contracts/contracts/utils/Address.sol";
+// import "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
+// import "openzeppelin-contracts/contracts/utils/cryptography/ECDSA.sol";
+// import "openzeppelin-contracts/contracts/utils/Address.sol";
 
-contract Marketplace {
-    struct Listing {
-        address payable seller;
-        address tokenAddress;
-        uint256 tokenId;
-        uint256 price;
-        bytes signature;
-        uint256 deadline;
-    }
+// contract Marketplace {
+//     struct Listing {
+//         address token;
+//         uint256 tokenId;
+//         uint256 price;
+//         bytes sig;
+//         //slot3
+//         uint256 deadline; //uint88?
+//         address lister;
+//         bool active;
+//     }
 
-    uint256 public listingCount;
-    mapping(uint256 => Listing) public listings;
+//     error NotOwner();
+//     error NotApproved();
+//     error AddressZero();
+//     error NoCode();
+//     error MinPricedTooLow();
+//     error DeadlineTooSoon();
+//     error MinDurationNotMet();
+//     error InvalidSignature();
 
-    event ListingCreated(
-        address seller,
-        address tokenAddress,
-        uint256 tokenId,
-        uint256 price
-    );
-    event ListingExecuted(uint256 listingId, address buyer, address seller);
+//     error ListingNotExistent();
+//     error ListingNotActive();
+//     error PriceNotMet(uint256 difference);
+//     error PriceMismatch(originalPrice); //why?
+//     error ListingExpired();
 
-    function createListing(
-        address _tokenAddress,
-        uint256 _tokenId,
-        uint256 _price,
-        bytes calldata _signature,
-        uint256 _deadline
-    ) external {
-        // Owner checks
-        require(
-            IERC721(_tokenAddress).ownerOf(_tokenId) == msg.sender,
-            "Not owner"
-        );
-        require(
-            IERC721(_tokenAddress).isApprovedForAll(msg.sender, address(this)),
-            "Not approved"
-        );
+//     mapping(uint256 => Listing) public listings;
+//     address public admin;
+//     uint256 public listingId;
 
-        // Token address checks
-        require(_tokenAddress != address(0), "Zero address, not valid");
-        require(Address.isContract(_tokenAddress), "Not contract");
+//     constructor() {
+//         admin = msg.sender;
+//     }
 
-        // Price check
-        require(_price > 0, "Price must be greater than zero");
+//     function createListing(Listing calldata l) public {
+//         //made returns(uint256 lid)
+//         if (IERC721(l.token).ownerOf(l.tokenId) != msg.sender)
+//             revert NotOwner();
+//         if (!IERC721(l.token).isApprovedForAll(msg.sender, address(this)))
+//             //confirm!
+//             revert NotApproved();
+//         if (l.token == address(0)) revert AddressZero();
+//         if (l.price < 0.01 ether) revert MinPricedTooLow();
+//         if (l.token.code.length == 0) revert NoCode();
+//         if (l.deadline < block.timestamp) revert DeadlineTooSoon();
+//         if (l.deadline - block.timestamp < 1 days) revert MinDurationNotMet();
 
-        // Deadline check
-        require(_deadline > block.timestamp, "Deadline must be in the future");
+//         //assert signature
+//         bytes32 hash = keccak256(
+//             abi.encodePacked(
+//                 l.token,
+//                 l.tokenId,
+//                 l.price,
+//                 msg.sender,
+//                 l.deadline
+//             )
+//         );
+//         if (!ECDSA.recover(hash, l.sig) != l.lister) revert InvalidSignature();
 
-        // Sign
-        bytes32 hash = keccak256(
-            abi.encodePacked(
-                _tokenAddress,
-                _tokenId,
-                _price,
-                msg.sender,
-                _deadline
-            )
-        );
-        require(
-            ECDSA.recover(hash, _signature) == msg.sender,
-            "Invalid signature"
-        );
+//         //append to storage
+//         Listing storage listing = listings[listingId];
+//         listing = Listing(
+//             l.lister,
+//             l.token,
+//             l.tokenId,
+//             l.price,
+//             l.sig,
+//             l.deadline
+//         );
+//         listingId++;
+//     }
 
-        // Transfer NFT ownership to contract
-        IERC721(_tokenAddress).safeTransferFrom(
-            msg.sender,
-            address(this),
-            _tokenId
-        );
+//     function executeListing(uint256 _listingId) public payable {
+//         if (_listingId >= listingId) revert ListingNotExistent();
+//         Listing storage listing = listings[_listingId];
+//         if (listing.deadline < block.timestamp) revert ListingExpired();
+//         if (!listing.active) revert ListingNotActive();
+//         if (listing.price > msg.value)
+//             revert PriceNotMet(listing.price - msg.value);
+//         if (listing.price != msg.value) revert PriceMismatch(listing.price);
+//         //update state
+//         listing.active = false;
+//         //transfer
+//         IERC721(listing.token).transferFrom(
+//             listing.lister,
+//             msg.sender,
+//             listing.tokenId
+//         );
+//         //transferETH
+//         payable(listing.lister).transfer(listing.price);
+//     }
 
-        // Create listing
-        listingCount++;
-        listings[listingCount] = Listing(
-            payable(msg.sender),
-            _tokenAddress,
-            _tokenId,
-            _price,
-            _signature,
-            _deadline
-        );
+//     function editListing(uint256 _listingId, uint256 newPrice) public {
+//         if (_listingId >= listingId) revert ListingNotExistent();
+//         Listing storage listing = listings[_listingId];
+//         if (listing.lister != msg.sender) revert NotOwner();
+//         listing.price = newPrice;
+//         listing.active = true;
+//     }
 
-        // Emit event
-        emit ListingCreated(msg.sender, _tokenAddress, _tokenId, _price);
-    }
+//     function getListing(
+//         uint256 _listingId
+//     ) public view returns (Listing memory) {
+//         if (_listingId >= listingId) return listings[_listingId];
+//     }
 
-    function executeListing(uint256 _listingId) external payable {
-        // Get listing
-        Listing storage listing = listings[_listingId];
+//     // function cancelListing(uint256 _listingId) public {
+//     //     if (_listingId >= listingId) revert ListingNotExistent();
+//     //     Listing storage listing = listings[_listingId];
+//     //     if (listing.seller != msg.sender) revert NotOwner();
+//     //     listing.active = false;
+//     // }
+// }
 
-        // Listing must exist
-        require(_listingId <= listingCount, "Invalid listing");
+// // uint256 public listingCount;
+// // event ListingCreated(
+// //     address seller,
+// //     address token,
+// //     uint256 tokenId,
+// //     uint256 price
+// // );
+// // event ListingExecuted(uint256 listingId, address buyer, address seller);
 
-        // Check price
-        require(msg.value == listing.price, "Incorrect price");
+// // function createListing(_token, uint256 _tokenId, uint256 _price, bytes _sig, uint256 _deadline) public {
+// // Checks
+// // require(IERC721(l.token).ownerOf(l.tokenId) == msg.sender, "Not owner");
+// // require(
+// //     IERC721(l.token).isApprovedForAll(msg.sender, address(this)),
+// //     "Not approved"
+// // );
+// // require(l.token != address(0), "Zero address, not valid");
+// // require(Address.isContract(l.token), "Not contract");
+// // require(_price > 0, "Price must be greater than zero");
+// // require(_deadline > block.timestamp, "Deadline must be in the future");
+// // Sign
+// // bytes32 hash = keccak256(
+// //     abi.encodePacked(_token, _tokenId, _price, msg.sender, _deadline)
+// // );
+// // require(ECDSA.recover(hash, _sig) == msg.sender, "Invalid sig");
+// // Transfer NFT ownership to contract
+// // IERC721(_token).safeTransferFrom(msg.sender, address(this), _tokenId);
+// // Create listing
+// // listingCount++;
+// // listings[listingCount] = Listing(
+// //     msg.sender,
+// //     _token,
+// //     _tokenId,
+// //     _price,
+// //     _sig,
+// //     _deadline
+// // );
+// // Emit event
+// // emit ListingCreated(msg.sender, _token, _tokenId, _price);
+// // }
 
-        // Check deadline
-        require(block.timestamp <= listing.deadline, "Deadline passed");
+// //     function executeListing(uint256 _listingId) external payable {
+// //         // Get listing
+// //         Listing storage listing = listings[_listingId];
 
-        // Verify signature
-        bytes32 hash = keccak256(
-            abi.encodePacked(
-                listing.tokenAddress,
-                listing.tokenId,
-                listing.price,
-                listing.seller,
-                listing.deadline
-            )
-        );
-        require(
-            ECDSA.recover(hash, listing.signature) == listing.seller,
-            "Invalid signature"
-        );
+// //         // Listing must exist
+// //         require(_listingId <= listingCount, "Invalid listing");
 
-        // Transfer NFT ownership to buyer
-        IERC721(listing.tokenAddress).safeTransferFrom(
-            address(this),
-            msg.sender,
-            listing.tokenId
-        );
+// //         // Check price
+// //         require(msg.value == listing.price, "Incorrect price");
 
-        // Pay seller
-        listing.seller.transfer(msg.value);
+// //         // Check deadline
+// //         require(block.timestamp <= listing.deadline, "Deadline passed");
 
-        // Emit event
-        emit ListingExecuted(_listingId, msg.sender, listing.seller);
+// //         // Verify sig
+// //         bytes32 hash = keccak256(
+// //             abi.encodePacked(
+// //                 listing.token,
+// //                 listing.tokenId,
+// //                 listing.price,
+// //                 listing.seller,
+// //                 listing.deadline
+// //             )
+// //         );
+// //         require(
+// //             ECDSA.recover(hash, listing.sig) == listing.seller,
+// //             "Invalid sig"
+// //         );
 
-        // Delete listing
-        delete listings[_listingId];
-    }
-}
+// //         // Transfer NFT ownership to buyer
+// //         IERC721(listing.token).safeTransferFrom(
+// //             address(this),
+// //             msg.sender,
+// //             listing.tokenId
+// //         );
+
+// //         // Pay seller
+// //         listing.seller.transfer(msg.value);
+
+// //         // Emit event
+// //         emit ListingExecuted(_listingId, msg.sender, listing.seller);
+
+// //         // Delete listing
+// //         delete listings[_listingId];
+// //     }
