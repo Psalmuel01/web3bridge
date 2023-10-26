@@ -12,3 +12,8 @@ docs/
 
 # Dotenv file
 .env
+
+# Extra
+src/MyMarketplace.sol
+src/Extra.sol
+
